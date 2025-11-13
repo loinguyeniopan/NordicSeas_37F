@@ -9,6 +9,8 @@ library(Hmisc)
 library(ggrepel)
 library(webr)
 library(geosphere)
+library(RColorBrewer)
+library(gridExtra)
 
 # Load required datasets
 # Read and convert it to a matrix
@@ -251,9 +253,6 @@ head(long_benthic_com)
 write.csv(long_benthic_com, "long_benthic_com.csv")
 
 
-
-
-
 #import the shared ASVs and set threhold for abundance
 shared_ASV <- long_benthic_com
 
@@ -368,7 +367,9 @@ for (abundance_threshold in thresholds) {
 
 head(distance_results)
 
+
 write.csv(distance_results, "distance_results.csv")
+distance_results <- read.csv("distance_results.csv", row.names = 1)
 
 results_100 <- distance_results %>%
   filter(threshold >= 100)
@@ -390,6 +391,8 @@ head(distance_summary)
 taxon <- read.csv("ASV_assignment.csv", row.names = 1, header = TRUE)
 
 head(taxon)
+
+taxon$merged <- paste(taxon$taxon1, taxon$taxon2, sep = "_")
 
 
 # Check the updated distance_results
@@ -431,9 +434,7 @@ distance_results <- merge(distance_results, shared_ASV[, c("ASV", "station", "sa
 
 # Display the results with distances for ASVs that match criteria
 head(distance_results)
-
 write.csv(distance_results, "distance_results_00.csv")
-
 distance_results <- read.csv("distance_results_00.csv", header = TRUE, row.names = 1 )
 
 head(distance_results)
@@ -454,9 +455,9 @@ write.csv(min_distance_summary,"min_distance_summary.csv")
 
 # Ensure sample_type is a factor with the specified order
 distance_results$sample_type <- factor(distance_results$sample_type, 
-                                     levels = c("bottom_water",
-                                                "100m_water",
-                                                "surface_water"))
+                                       levels = c("bottom_water",
+                                                  "100m_water",
+                                                  "surface_water"))
 
 # Ensure sample_type is a factor with the specified order
 distance_results$threshold <- factor(distance_results$threshold, 
@@ -467,9 +468,8 @@ distance_results$threshold <- factor(distance_results$threshold,
                                                 0))
 
 
-
 sample_color = rev(c("#19A9A9", "#053F5C", "#F2BC52"))
-taxon_color =c("#2078B4", "#F47E1F", "#AD2423", "gray")
+
 pair_comparisons <- list( c("surface_water", "100m_water"),
                           c("surface_water", "bottom_water"),
                           c("100m_water","bottom_water"))
@@ -507,7 +507,7 @@ taxon <- read.csv("ASV_assignment.csv", row.names = 1, header = TRUE)
 
 distance_results <- merge(distance_results, taxon[, c("taxon1", "taxon2")], 
                           by.x = "ASV", by.y = "row.names", all.x = TRUE)
-
+distance_results$merged <- paste(distance_results$taxon1, distance_results$taxon2, sep = "_")
 
 # Calculate the total unique count of taxon1 for each threshold and sample_type
 total_counts <- distance_results %>%
@@ -519,15 +519,25 @@ total_counts <- distance_results %>%
 # Calculate the percentage of taxon1 within each threshold and sample_type
 distance_results_percent <- distance_results %>%
   distinct(ASV, sample_type, threshold, .keep_all = TRUE) %>%
-  group_by(threshold, sample_type, taxon1) %>%
+  group_by(threshold, sample_type, merged) %>%
   tally() %>%
   ungroup() %>%
   left_join(total_counts, by = c("threshold", "sample_type")) 
+distance_results_percent <- distance_results_percent %>%
+  mutate(merged = ifelse(merged == "Monothalamea_ENFOR", 
+                         "Monothalamea_Monothalamea_X", 
+                         merged))
+
+colors = c(   "#0c176b", "#177cb9",  "#70ACD0", 
+           "#72B29C", "#ACDB8B", "#84C868", "#52AF43", "#4F9F3B", "#9E9C66",
+           "#EC9A91", "#F37070", "#E93E3F", "#E52B24", "#F06C45", "#FAAD66",
+           "#FDAC4F", "#FE9323", "#FB820F", "#E69663", "#D1AAB7", "#B294C7",
+           "#8C66AF", "#6F4399", "#A99099", "#E4DC99", "#EEDB80", "#B15928","gray")
 
 # Create a bar plot showing the percentage of taxon1 for each sample_type, faceted by threshold
-p2<-ggplot(distance_results_percent, aes(x = sample_type, y = n, fill = taxon1)) +
+p2<-ggplot(distance_results_percent, aes(x = sample_type, y = n, fill = merged)) +
   geom_bar(stat = "identity", position = "fill") +
-  scale_fill_manual (values = taxon_color) + 
+  scale_fill_manual (values = colors) + 
   labs(
     title = "Percentage of Taxon1 for Each Water Type, Faceted by Threshold",
     x = "Water Type",
@@ -541,17 +551,19 @@ p2<-ggplot(distance_results_percent, aes(x = sample_type, y = n, fill = taxon1))
     panel.grid.major.y = element_line(color = "grey80", linetype = "dashed"), # Add gridlines for outliers
     panel.grid.major.x = element_line(color = "grey80", linetype = "dashed"), # Add gridlines for outliers
     panel.border = element_rect(linetype = "solid", fill = NA )) +  
+  guides(fill = guide_legend(ncol = 1)) +
   facet_wrap(~ threshold, ncol =1)  # Facet by Threshold
 
 p2
 
 
+
 # Create a bar plot showing the percentage of taxon1 for each sample_type, faceted by threshold
-ggplot(distance_results_percent, aes(x = sample_type, y = n, fill = taxon1)) +
+ggplot(distance_results_percent, aes(x = sample_type, y = n, fill = merged)) +
   geom_bar(stat = "identity") +
   geom_text(data = total_counts, aes(x = sample_type, y = 950, label = total_taxon1_count), 
             inherit.aes = FALSE, color = "black", size = 4, vjust = -0.5) +  # Add total count as text labels
-  scale_fill_manual (values = taxon_color) + 
+  scale_fill_manual (values = colors) + 
   labs(
     title = "Percentage of Taxon1 for Each Water Type, Faceted by Threshold",
     x = "Water Type",
@@ -571,14 +583,20 @@ ggplot(distance_results_percent, aes(x = sample_type, y = n, fill = taxon1)) +
 # Calculate the percentage of taxon1 within each threshold and sample_type
 distance_results_abundance <- distance_results %>%
   distinct( ASV, station_2, sample_type, threshold, abundance, .keep_all = TRUE) %>%
-  group_by( ASV, station_2, sample_type, threshold, taxon1, abundance) %>%
+  group_by( ASV, station_2, sample_type, threshold, merged, abundance) %>%
   tally() %>%
   ungroup() 
 
+
+distance_results_abundance <- distance_results_abundance %>%
+  mutate(merged = ifelse(merged == "Monothalamea_ENFOR", 
+                         "Monothalamea_Monothalamea_X", 
+                         merged))
+
 # Create the bar plot
-p3 <- ggplot(distance_results_abundance, aes(x = sample_type, y = abundance, fill = taxon1)) +
+p3 <- ggplot(distance_results_abundance, aes(x = sample_type, y = abundance, fill = merged)) +
   geom_bar(stat = "identity", position = "fill") +
-  scale_fill_manual (values = taxon_color) + 
+  scale_fill_manual (values = colors) + 
   labs(title = "Abundance by Sample Type", 
        x = "Sample Type", 
        y = "Abundance", 
@@ -592,21 +610,17 @@ p3 <- ggplot(distance_results_abundance, aes(x = sample_type, y = abundance, fil
     panel.grid.major.y = element_line(color = "grey80", linetype = "dashed"), # Add gridlines for outliers
     panel.grid.major.x = element_line(color = "grey80", linetype = "dashed"), # Add gridlines for outliers
     panel.border = element_rect(linetype = "solid", fill = NA )) + 
+  guides(fill = guide_legend(ncol = 1)) +
   facet_wrap(~ threshold, ncol =1)  # Facet by Threshold
 
 
 p3
 
 
-
-
-library(gridExtra)
-
 # Fig. 5A
 # Filter distance_results for Threshold = 0
 threshold_100_results <- distance_results %>%
   filter(threshold == 100)
-
 
 p1 <- ggplot(threshold_100_results, aes(x = sample_type, y = d2s / 1000, fill = sample_type)) +
   geom_violin(aes(color = sample_type), trim = T) +
@@ -636,15 +650,20 @@ p1
 # Calculate the percentage of taxon1 within each threshold and sample_type
 threshold_100_percent <- threshold_100_results %>%
   distinct(ASV, sample_type, threshold, .keep_all = TRUE) %>%
-  group_by(threshold, sample_type, abundance, taxon1) %>%
+  group_by(threshold, sample_type, abundance, merged) %>%
   tally() %>%
   ungroup() 
- 
+
+threshold_100_percent <- threshold_100_percent %>%
+  mutate(merged = ifelse(grepl("^Monothalamea", merged),
+                         "Monothalamea",
+                         merged))
+
 head(threshold_100_percent)
 
 # Calculate total abundance and percentage
 threshold_100_summary <- threshold_100_percent %>%
-  group_by(taxon1) %>%  # Group by taxon1
+  group_by(merged) %>%  # Group by taxon1
   dplyr::summarize(
     total_abundance = sum(n),  # Sum abundance for each taxon
     .groups = "drop"
@@ -656,7 +675,7 @@ threshold_100_summary <- threshold_100_percent %>%
 
 # Calculate total abundance and percentage for each taxon1 within each sample_type
 threshold_100_summary <- threshold_100_percent %>%
-  group_by(sample_type, taxon1) %>%  # Group by sample_type and taxon1
+  group_by(sample_type, merged) %>%  # Group by sample_type and taxon1
   dplyr::summarize(
     total_abundance = sum(n),  # Total abundance for each group
     .groups = "drop"  # Drop grouping for cleaner output
@@ -669,7 +688,7 @@ threshold_100_summary <- threshold_100_percent %>%
 
 # Calculate total abundance and percentage for each taxon1 within each sample_type
 threshold_100_summary <- threshold_100_percent %>%
-  group_by(sample_type, taxon1) %>%  # Group by sample_type and taxon1
+  group_by(sample_type, merged) %>%  # Group by sample_type and taxon1
   dplyr::summarize(
     total_abundance = sum(n),  # Total abundance for each group
     .groups = "drop"  # Drop grouping for cleaner output
@@ -681,8 +700,12 @@ threshold_100_summary <- threshold_100_percent %>%
   ungroup()
 
 # Fig. 5B
+
+
+taxon_color =c(  "#0c176b", "#177cb9",  "#70ACD0",   "#F47E1F", "#AD2423", "gray")
+
 # Create a bar plot showing the percentage of taxon1 for each sample_type, faceted by threshold
-p2<-ggplot(threshold_100_percent, aes(x = sample_type, y = n, fill = taxon1)) +
+p2<-ggplot(threshold_100_percent, aes(x = sample_type, y = n, fill = merged)) +
   scale_fill_manual (values = taxon_color) + 
   geom_bar(stat = "identity", position = "fill") +  # Bar plot with percentage values
   labs(
@@ -705,20 +728,24 @@ p2
 # Calculate the percentage of taxon1 within each threshold and sample_type
 threshold_100_abundance  <- threshold_100_results %>%
   distinct(ASV, station_2, sample_type, threshold,  abundance, .keep_all = TRUE) %>%
-  group_by( ASV, station_2, sample_type, threshold, taxon1, abundance) %>%
+  group_by( ASV, station_2, sample_type, threshold, merged, abundance) %>%
   tally() %>%
   ungroup() 
 
+threshold_100_abundance  <- threshold_100_abundance %>%
+  mutate(merged = ifelse(grepl("^Monothalamea", merged),
+                         "Monothalamea",
+                         merged))
 
 # Calculate total abundance and percentage for each taxon1 within each sample_type
 threshold_100_summary <- threshold_100_abundance %>%
-  group_by(sample_type, taxon1) %>%  # Group by sample_type and taxon1
+  group_by(sample_type, merged) %>%  # Group by sample_type and taxon1
   dplyr::summarize(
     total_abundance = sum(abundance),  # Total abundance for each group
     .groups = "drop"  # Drop grouping for cleaner output
   ) %>%
   group_by(sample_type) %>%  # Regroup by sample_type to calculate percentage
-   mutate(
+  mutate(
     percentage = (total_abundance / sum(total_abundance)) * 100  # Calculate percentage
   ) %>%
   ungroup()
@@ -727,7 +754,7 @@ threshold_100_summary <- threshold_100_abundance %>%
 
 # Calculate total abundance and percentage
 threshold_100_summary <- threshold_100_abundance %>%
-  group_by(taxon1) %>%  # Group by taxon1
+  group_by(merged) %>%  # Group by taxon1
   dplyr::summarize(
     total_abundance = sum(abundance),  # Sum abundance for each taxon
     .groups = "drop"
@@ -736,10 +763,9 @@ threshold_100_summary <- threshold_100_abundance %>%
     percentage = (total_abundance / sum(total_abundance)) * 100  # Calculate percentage
   )
 
-
 # Fig. 5C
 # Create a bar plot showing the percentage of taxon1 for each sample_type, faceted by threshold
-p3<-ggplot(threshold_100_abundance, aes(x = sample_type, y = abundance, fill = taxon1)) +
+p3<-ggplot(threshold_100_abundance, aes(x = sample_type, y = abundance, fill = merged)) +
   scale_fill_manual (values = taxon_color) + 
   geom_bar(stat = "identity", position ="fill") +  # Bar plot with percentage values
   labs(
@@ -766,29 +792,29 @@ grid.arrange(p1, p2, p3, ncol = 3)
 
 
 lists1 = rev(c("NS06",
-           "NS02",
-           "NS04",
-           "NS01",
-           "NS10",
-           "NS47",
-           "NS12",
-           "NS45",
-           "NS43",
-           "NS38",
-           "HR07",
-           "HR04",
-           "IS01",
-           "KV01",
-           "KH01",
-           "IS02",
-           "KH10",
-           "NC01",
-           "KH05",
-           "KH02",
-           "KH03",
-           "KH09",
-           "KH08",
-           "KH07"))
+               "NS02",
+               "NS04",
+               "NS01",
+               "NS10",
+               "NS47",
+               "NS12",
+               "NS45",
+               "NS43",
+               "NS38",
+               "HR07",
+               "HR04",
+               "IS01",
+               "KV01",
+               "KH01",
+               "IS02",
+               "KH10",
+               "NC01",
+               "KH05",
+               "KH02",
+               "KH03",
+               "KH09",
+               "KH08",
+               "KH07"))
 
 
 
@@ -817,7 +843,7 @@ asv_station_water <- unique_asvs %>%
 
 p1 <- ggplot(asv_station_water, aes(x = factor(station_1, levels = lists1), y = sample_type, fill = total_ASV_count)) +
   geom_tile(color = "white", size = 1) +  # Create tiles with white borders
-   geom_text(aes(label = total_ASV_count), color = "black", size = 4) +  # Add ASV counts as text
+  geom_text(aes(label = total_ASV_count), color = "black", size = 4) +  # Add ASV counts as text
   scale_fill_gradientn(
     colors = c("white", "#90e0ef", "#0077b6", "#03045e"),  # Include gray for 0
     values = scales::rescale(c(0, 1, 20, 40)),          # Map 0 to gray explicitly
@@ -868,8 +894,8 @@ lists2 = rev(c("North Svalbard",
 # Create the heatmap using ggplot2
 
 p2 <- ggplot(asv_station_region, aes(x = factor(station_1, levels = lists1), 
-                               y = factor(region_2, levels = lists2),
-                               fill = total_ASV_count)) +
+                                     y = factor(region_2, levels = lists2),
+                                     fill = total_ASV_count)) +
   geom_tile(color = "white", size = 1) +  # Create tiles with white borders
   geom_text(aes(label = total_ASV_count), color = "black", size = 4) +  # Add ASV counts as text
   scale_fill_gradientn(
@@ -1007,8 +1033,4 @@ grid.arrange(p1, p2, ncol = 1)
 
 
 
-
-
-
-
-
+#####################
